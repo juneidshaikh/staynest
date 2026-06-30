@@ -1,0 +1,828 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================== ENUMS =====================
+
+enum UserRole {
+  GUEST
+  OWNER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  ANY
+}
+
+enum PropertyType {
+  PG
+  HOSTEL
+  CO_LIVING
+  STUDENT_ACCOMMODATION
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  TRIPLE
+  DORMITORY
+  STUDIO
+  PRIVATE_ROOM
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  REFUNDED
+  NO_SHOW
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  STRIPE
+  RAZORPAY
+  UPI
+  GOOGLE_PAY
+  PHONEPE
+  PAYTM
+  NET_BANKING
+  DEBIT_CARD
+  CREDIT_CARD
+  WALLET
+  CASH
+}
+
+enum PropertyStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  REJECTED
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  PAYMENT_SUCCESS
+  PAYMENT_FAILED
+  REVIEW_RECEIVED
+  MESSAGE_RECEIVED
+  PROPERTY_APPROVED
+  PROPERTY_REJECTED
+  REFUND_PROCESSED
+  SYSTEM_ALERT
+  PROMOTIONAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FREE_NIGHT
+}
+
+enum MealPlan {
+  NONE
+  BREAKFAST
+  HALF_BOARD
+  FULL_BOARD
+}
+
+// ===================== USER =====================
+
+model User {
+  id                String    @id @default(cuid())
+  email             String?   @unique
+  phone             String?   @unique
+  name              String?
+  avatarUrl         String?
+  role              UserRole  @default(GUEST)
+  gender            Gender?
+  dateOfBirth       DateTime?
+  emailVerified     Boolean   @default(false)
+  phoneVerified     Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  isBanned          Boolean   @default(false)
+  banReason         String?
+  googleId          String?   @unique
+  passwordHash      String?
+  referralCode      String?   @unique
+  referredBy        String?
+  walletBalance     Float     @default(0)
+  rewardPoints      Int       @default(0)
+  preferredLanguage String    @default("en")
+  preferredCurrency String    @default("INR")
+  pushToken         String?
+  lastLoginAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  sessions          Session[]
+  otpCodes          OtpCode[]
+  bookings          Booking[]
+  reviews           Review[]
+  reviewVotes       ReviewVote[]
+  wishlistItems     WishlistItem[]
+  notifications     Notification[]
+  messages          Message[]        @relation("MessageSender")
+  receivedMessages  Message[]        @relation("MessageReceiver")
+  supportTickets    SupportTicket[]
+  properties        Property[]       @relation("PropertyOwner")
+  transactions      Transaction[]
+  userCoupons       UserCoupon[]
+  recentlyViewed    RecentlyViewed[]
+  referrals         User[]           @relation("Referrals")
+  referrer          User?            @relation("Referrals", fields: [referredBy], references: [id])
+  searchHistory     SearchHistory[]
+  savedSearches     SavedSearch[]
+
+  @@map("users")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  token        String   @unique
+  refreshToken String   @unique
+  deviceInfo   String?
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  userId    String?
+  email     String?
+  phone     String?
+  code      String
+  purpose   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("otp_codes")
+}
+
+// ===================== PROPERTY =====================
+
+model Property {
+  id               String         @id @default(cuid())
+  ownerId          String
+  name             String
+  slug             String         @unique
+  description      String         @db.Text
+  propertyType     PropertyType
+  status           PropertyStatus @default(DRAFT)
+  isVerified       Boolean        @default(false)
+  isFeatured       Boolean        @default(false)
+  isInstantBook    Boolean        @default(false)
+  noBrokerage      Boolean        @default(false)
+  gender           Gender         @default(ANY)
+  
+  // Location
+  address          String
+  city             String
+  state            String
+  country          String         @default("India")
+  pincode          String
+  latitude         Float
+  longitude        Float
+  landmark         String?
+  googlePlaceId    String?
+  
+  // Media
+  coverImage       String
+  images           String[]
+  videos           String[]
+  virtualTourUrl   String?
+  
+  // Pricing
+  basePrice        Float
+  minPrice         Float?
+  maxPrice         Float?
+  securityDeposit  Float          @default(0)
+  maintenanceCharge Float?
+  electricityCharge String?       // "included" | "per_unit" | "flat_rate"
+  waterCharge      String?
+  
+  // Meal
+  mealPlan         MealPlan       @default(NONE)
+  mealPrice        Float?
+  
+  // Rules
+  checkInTime      String         @default("10:00")
+  checkOutTime     String         @default("11:00")
+  minStayDays      Int            @default(30)
+  maxStayDays      Int?
+  noticePeriodDays Int            @default(30)
+  rules            String[]
+  
+  // Stats
+  totalRooms       Int            @default(0)
+  availableRooms   Int            @default(0)
+  totalReviews     Int            @default(0)
+  averageRating    Float          @default(0)
+  totalBookings    Int            @default(0)
+  
+  // SEO
+  metaTitle        String?
+  metaDescription  String?
+  tags             String[]
+  
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  approvedAt       DateTime?
+  approvedBy       String?
+  rejectionReason  String?
+
+  // Relations
+  owner            User           @relation("PropertyOwner", fields: [ownerId], references: [id])
+  rooms            Room[]
+  bookings         Booking[]
+  reviews          Review[]
+  amenities        PropertyAmenity[]
+  nearbyPlaces     NearbyPlace[]
+  wishlistItems    WishlistItem[]
+  recentlyViewed   RecentlyViewed[]
+  propertyDocuments PropertyDocument[]
+  availability     Availability[]
+  pricingRules     PricingRule[]
+  offers           PropertyOffer[]
+  analytics        PropertyAnalytics[]
+
+  @@index([city, status])
+  @@index([latitude, longitude])
+  @@index([ownerId])
+  @@index([status, isFeatured])
+  @@map("properties")
+}
+
+model Room {
+  id              String   @id @default(cuid())
+  propertyId      String
+  name            String
+  roomType        RoomType
+  capacity        Int      @default(1)
+  availableBeds   Int      @default(1)
+  totalBeds       Int      @default(1)
+  floor           Int?
+  size            Float?   // in sq ft
+  pricePerMonth   Float
+  pricePerDay     Float?
+  images          String[]
+  description     String?
+  isAvailable     Boolean  @default(true)
+  gender          Gender   @default(ANY)
+  amenities       String[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  property Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  bookings Booking[]
+
+  @@index([propertyId, isAvailable])
+  @@map("rooms")
+}
+
+model PropertyAmenity {
+  id         String  @id @default(cuid())
+  propertyId String
+  name       String
+  icon       String?
+  category   String?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, name])
+  @@map("property_amenities")
+}
+
+model NearbyPlace {
+  id         String  @id @default(cuid())
+  propertyId String
+  name       String
+  type       String  // college, company, hospital, metro, etc.
+  distance   Float   // in km
+  latitude   Float?
+  longitude  Float?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("nearby_places")
+}
+
+model PropertyDocument {
+  id         String   @id @default(cuid())
+  propertyId String
+  name       String
+  url        String
+  type       String   // id_proof, ownership_proof, noc, etc.
+  verified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_documents")
+}
+
+model Availability {
+  id         String   @id @default(cuid())
+  propertyId String
+  roomId     String?
+  date       DateTime
+  available  Boolean  @default(true)
+  price      Float?   // Override price for specific dates
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, roomId, date])
+  @@map("availability")
+}
+
+model PricingRule {
+  id          String   @id @default(cuid())
+  propertyId  String
+  name        String
+  startDate   DateTime?
+  endDate     DateTime?
+  dayOfWeek   Int[]    // 0-6 for days
+  multiplier  Float    @default(1)
+  fixedPrice  Float?
+  minStay     Int?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("pricing_rules")
+}
+
+model PropertyOffer {
+  id            String   @id @default(cuid())
+  propertyId    String
+  title         String
+  description   String?
+  discountType  String   // percentage | fixed
+  discountValue Float
+  minStayDays   Int?
+  validFrom     DateTime?
+  validTo       DateTime?
+  isActive      Boolean  @default(true)
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_offers")
+}
+
+// ===================== BOOKING =====================
+
+model Booking {
+  id                 String        @id @default(cuid())
+  bookingNumber      String        @unique
+  userId             String
+  propertyId         String
+  roomId             String?
+  
+  status             BookingStatus @default(PENDING)
+  checkInDate        DateTime
+  checkOutDate       DateTime
+  totalDays          Int
+  guestsCount        Int           @default(1)
+  
+  // Pricing breakdown
+  baseAmount         Float
+  discountAmount     Float         @default(0)
+  couponDiscount     Float         @default(0)
+  taxAmount          Float         @default(0)
+  totalAmount        Float
+  securityDeposit    Float         @default(0)
+  
+  // Coupon
+  couponId           String?
+  couponCode         String?
+  
+  // Guest details
+  guestName          String
+  guestEmail         String
+  guestPhone         String
+  specialRequests    String?
+  
+  // Tracking
+  confirmedAt        DateTime?
+  checkedInAt        DateTime?
+  checkedOutAt       DateTime?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  
+  // Invoice
+  invoiceUrl         String?
+  invoiceNumber      String?
+  
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id])
+  property  Property   @relation(fields: [propertyId], references: [id])
+  room      Room?      @relation(fields: [roomId], references: [id])
+  coupon    Coupon?    @relation(fields: [couponId], references: [id])
+  payments  Payment[]
+  review    Review?
+
+  @@index([userId])
+  @@index([propertyId])
+  @@index([status])
+  @@index([checkInDate, checkOutDate])
+  @@map("bookings")
+}
+
+// ===================== PAYMENT =====================
+
+model Payment {
+  id                  String        @id @default(cuid())
+  bookingId           String
+  userId              String
+  
+  amount              Float
+  currency            String        @default("INR")
+  status              PaymentStatus @default(PENDING)
+  method              PaymentMethod
+  
+  // Gateway details
+  gatewayOrderId      String?
+  gatewayPaymentId    String?
+  gatewaySignature    String?
+  gatewayResponse     Json?
+  
+  // Refund
+  refundAmount        Float?
+  refundedAt          DateTime?
+  refundReason        String?
+  refundGatewayId     String?
+  
+  paidAt              DateTime?
+  failureReason       String?
+  metadata            Json?
+  
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  booking   Booking     @relation(fields: [bookingId], references: [id])
+  transaction Transaction?
+
+  @@index([bookingId])
+  @@index([status])
+  @@index([gatewayPaymentId])
+  @@map("payments")
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  userId      String
+  paymentId   String?  @unique
+  type        String   // credit | debit
+  amount      Float
+  balance     Float
+  description String
+  reference   String?
+  createdAt   DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id])
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([userId])
+  @@map("transactions")
+}
+
+// ===================== REVIEW =====================
+
+model Review {
+  id              String   @id @default(cuid())
+  propertyId      String
+  userId          String
+  bookingId       String?  @unique
+  
+  overallRating   Float
+  cleanlinessRating Float?
+  locationRating  Float?
+  valueRating     Float?
+  safetyRating    Float?
+  staffRating     Float?
+  amenitiesRating Float?
+  
+  title           String?
+  content         String   @db.Text
+  images          String[]
+  videos          String[]
+  
+  isVerified      Boolean  @default(false)
+  isApproved      Boolean  @default(true)
+  isFeatured      Boolean  @default(false)
+  helpfulCount    Int      @default(0)
+  
+  ownerReply      String?
+  ownerRepliedAt  DateTime?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  property Property    @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user     User        @relation(fields: [userId], references: [id])
+  booking  Booking?    @relation(fields: [bookingId], references: [id])
+  votes    ReviewVote[]
+
+  @@index([propertyId])
+  @@index([userId])
+  @@map("reviews")
+}
+
+model ReviewVote {
+  id       String  @id @default(cuid())
+  reviewId String
+  userId   String
+  isHelpful Boolean
+
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([reviewId, userId])
+  @@map("review_votes")
+}
+
+// ===================== WISHLIST =====================
+
+model WishlistItem {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  listName   String   @default("Saved")
+  notes      String?
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId, listName])
+  @@map("wishlist_items")
+}
+
+// ===================== COUPON =====================
+
+model Coupon {
+  id              String     @id @default(cuid())
+  code            String     @unique
+  title           String
+  description     String?
+  type            CouponType
+  discountValue   Float
+  maxDiscount     Float?
+  minBookingAmount Float?
+  usageLimit      Int?
+  usageCount      Int        @default(0)
+  perUserLimit    Int        @default(1)
+  validFrom       DateTime
+  validTo         DateTime
+  isActive        Boolean    @default(true)
+  propertyId      String?    // null = applicable on all
+  applicableOn    String[]   // property types
+  createdBy       String?
+  createdAt       DateTime   @default(now())
+
+  bookings   Booking[]
+  userCoupons UserCoupon[]
+
+  @@map("coupons")
+}
+
+model UserCoupon {
+  id        String   @id @default(cuid())
+  userId    String
+  couponId  String
+  usedCount Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id])
+  coupon Coupon @relation(fields: [couponId], references: [id])
+
+  @@unique([userId, couponId])
+  @@map("user_coupons")
+}
+
+// ===================== NOTIFICATION =====================
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  body      String
+  data      Json?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+// ===================== MESSAGE =====================
+
+model Message {
+  id           String   @id @default(cuid())
+  senderId     String
+  receiverId   String
+  propertyId   String?
+  bookingId    String?
+  content      String
+  attachments  String[]
+  isRead       Boolean  @default(false)
+  readAt       DateTime?
+  createdAt    DateTime @default(now())
+
+  sender   User @relation("MessageSender", fields: [senderId], references: [id])
+  receiver User @relation("MessageReceiver", fields: [receiverId], references: [id])
+
+  @@index([senderId, receiverId])
+  @@map("messages")
+}
+
+// ===================== SUPPORT =====================
+
+model SupportTicket {
+  id          String          @id @default(cuid())
+  ticketNumber String         @unique
+  userId      String
+  subject     String
+  description String          @db.Text
+  category    String
+  status      TicketStatus    @default(OPEN)
+  priority    TicketPriority  @default(MEDIUM)
+  assignedTo  String?
+  resolvedAt  DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  user    User           @relation(fields: [userId], references: [id])
+  replies TicketReply[]
+
+  @@map("support_tickets")
+}
+
+model TicketReply {
+  id        String   @id @default(cuid())
+  ticketId  String
+  userId    String
+  content   String   @db.Text
+  isStaff   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@map("ticket_replies")
+}
+
+// ===================== ANALYTICS =====================
+
+model PropertyAnalytics {
+  id          String   @id @default(cuid())
+  propertyId  String
+  date        DateTime
+  views       Int      @default(0)
+  clicks      Int      @default(0)
+  inquiries   Int      @default(0)
+  bookings    Int      @default(0)
+  revenue     Float    @default(0)
+  avgStayDays Float?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, date])
+  @@map("property_analytics")
+}
+
+model SearchHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  query     String
+  filters   Json?
+  results   Int      @default(0)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("search_history")
+}
+
+model SavedSearch {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  query     String
+  filters   Json?
+  alertEnabled Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("saved_searches")
+}
+
+model RecentlyViewed {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  viewedAt   DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@map("recently_viewed")
+}
+
+// ===================== REFERRAL =====================
+
+model ReferralProgram {
+  id            String   @id @default(cuid())
+  referrerId    String
+  refereeId     String?
+  referralCode  String
+  bonusAmount   Float    @default(0)
+  isConverted   Boolean  @default(false)
+  convertedAt   DateTime?
+  createdAt     DateTime @default(now())
+
+  @@map("referral_programs")
+}
+
+// ===================== PLATFORM CONFIG =====================
+
+model SiteConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  type      String   @default("string")
+  updatedAt DateTime @updatedAt
+
+  @@map("site_config")
+}
+
+model Advertisement {
+  id         String   @id @default(cuid())
+  title      String
+  imageUrl   String
+  targetUrl  String
+  position   String   // hero, sidebar, banner, etc.
+  isActive   Boolean  @default(true)
+  startDate  DateTime?
+  endDate    DateTime?
+  clicks     Int      @default(0)
+  views      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@map("advertisements")
+}
